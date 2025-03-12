@@ -1,5 +1,6 @@
 from collections import Counter
 from itertools import permutations
+import time
 
 def load_word_list(file_path):
     with open(file_path, 'r') as file:
@@ -16,21 +17,37 @@ def get_valid_words(letters, word_list):
         if len(word) >= 3 and all(letter_counter[letter] >= count for letter, count in Counter(word).items()):
             valid_words.append(word)
     
+    # Sort words by length (descending) to optimize search
+    valid_words.sort(key=len, reverse=True)
     return valid_words
 
-def can_interconnect(words, remaining_letters, solution=None):
-    """Check if words can be interconnected to use all letters and return the solution."""
+def find_all_solutions(words, remaining_letters, solution=None, all_solutions=None, start_time=None, max_solutions=100, timeout=5):
+    """Find possible solutions that use all letters, with limits to prevent infinite loops."""
+    if start_time is None:
+        start_time = time.time()
     if solution is None:
         solution = []
+    if all_solutions is None:
+        all_solutions = []
+    
+    # Check timeout and solution limit
+    if time.time() - start_time > timeout or len(all_solutions) >= max_solutions:
+        return all_solutions
         
     if not remaining_letters:
-        return True, solution
+        # Found a valid solution, add it to all_solutions
+        all_solutions.append(solution.copy())
+        return all_solutions
     
     if not words:
-        return False, []
+        return all_solutions
     
     # Try each word as a starting point
     for i, word in enumerate(words):
+        # Skip if this word is too long for remaining letters
+        if len(word) > len(remaining_letters):
+            continue
+            
         # Count letters used in the current word
         word_counter = Counter(word)
         
@@ -39,7 +56,6 @@ def can_interconnect(words, remaining_letters, solution=None):
         for letter, count in word_counter.items():
             new_remaining[letter] -= count
             if new_remaining[letter] < 0:
-                # This means the word uses more of a letter than available
                 break
         else:
             # If we got here, the word can be used
@@ -49,26 +65,19 @@ def can_interconnect(words, remaining_letters, solution=None):
             # Add this word to the current solution path
             current_solution = solution + [word]
             
-            # If no letters remain, we've solved it
-            if not updated_remaining:
-                return True, current_solution
-            
-            # Try to interconnect with other words
+            # Recursive call with remaining letters and words
             remaining_words = words[:i] + words[i+1:]
+            find_all_solutions(remaining_words, updated_remaining, current_solution, 
+                             all_solutions, start_time, max_solutions, timeout)
             
-            # Find all potential shared letters between current word and remaining letters
-            shared_letters = set(word) & set(updated_remaining)
-            
-            # If there are shared letters, we can potentially interconnect
-            if shared_letters:
-                is_valid, found_solution = can_interconnect(remaining_words, updated_remaining, current_solution)
-                if is_valid:
-                    return True, found_solution
+            # If we've found enough solutions, stop searching
+            if len(all_solutions) >= max_solutions:
+                return all_solutions
     
-    return False, []
+    return all_solutions
 
 def is_solvable(letters, word_list):
-    """Check if the set of letters is solvable in Q-Less and return a solution if found."""
+    """Check if the set of letters is solvable in Q-Less and return some valid solutions."""
     # Get all valid words that can be formed from the letters
     valid_words = get_valid_words(letters, word_list)
     
@@ -76,9 +85,28 @@ def is_solvable(letters, word_list):
     if not valid_words:
         return False, []
     
-    # Check if words can be interconnected to use all letters
-    is_valid, solution = can_interconnect(valid_words, letters)
-    return is_valid, solution
+    # Find possible solutions (limited to prevent infinite search)
+    all_solutions = find_all_solutions(valid_words, letters)
+    
+    # Filter solutions to only keep those where words can be interconnected
+    valid_solutions = []
+    for solution in all_solutions:
+        # Check if all words in this solution can be interconnected
+        can_connect = False
+        for i, word1 in enumerate(solution):
+            for word2 in solution[i+1:]:
+                if set(word1) & set(word2):  # If words share any letters
+                    can_connect = True
+                    break
+            if can_connect:
+                break
+        if can_connect:
+            valid_solutions.append(solution)
+            # Limit the number of valid solutions we store
+            if len(valid_solutions) >= 10:
+                break
+    
+    return bool(valid_solutions), valid_solutions
 
 def display_solution(solution):
     """Display the solution in a readable format with a matrix visualization."""
@@ -90,10 +118,6 @@ def display_solution(solution):
     # Create a crossword-like visualization
     print("\nPossible arrangement:")
     print("--------------------------")
-    
-    # We'll use a simple algorithm to create a 2D grid representation
-    # First, place the first word horizontally in the middle
-    # Then try to add subsequent words vertically or horizontally
     
     # Initialize grid size - make it generous to accommodate the solution
     grid_size = 30
@@ -230,15 +254,37 @@ def main():
 
         user_input = user_input.lower()
 
-        is_valid, solution = is_solvable(user_input, word_list)
+        is_valid, solutions = is_solvable(user_input, word_list)
         
         if is_valid:
-            print("This set is solvable, good luck!")
+            print(f"This set is solvable! Found {len(solutions)} different solutions.")
             
-            # Ask if the user wants to see a solution
-            show_solution = input("Would you like to see a potential solution? (yes/no)\n> ").strip().lower()
-            if show_solution == 'yes':
-                display_solution(solution)
+            # Keep track of which solutions have been shown
+            shown_solutions = set()
+            
+            while True:
+                # If we haven't shown any solutions yet or if the user wants to see another one
+                if not shown_solutions:
+                    show_prompt = "Would you like to see a potential solution? (yes/no)\n> "
+                else:
+                    show_prompt = "Would you like to see another potential solution? (yes/no)\n> "
+                
+                show_solution = input(show_prompt).strip().lower()
+                
+                if show_solution != 'yes':
+                    break
+                
+                # Find a solution we haven't shown yet
+                remaining_solutions = [sol for i, sol in enumerate(solutions) if i not in shown_solutions]
+                
+                if not remaining_solutions:
+                    print("\nAll possible solutions have been shown!")
+                    break
+                
+                # Show the next unseen solution
+                next_solution_idx = len(shown_solutions)
+                display_solution(solutions[next_solution_idx])
+                shown_solutions.add(next_solution_idx)
         else:
             print("This set is not solvable. Roll again!")
 
