@@ -5,27 +5,72 @@ def load_word_list(file_path):
     with open(file_path, 'r') as file:
         return set(word.strip().strip('"').lower() for word in file)
 
-def is_solvable(letters, word_list):
-    letter_count = Counter(letters)
+def get_valid_words(letters, word_list):
+    """Find all valid words that can be formed from the given letters."""
+    letter_counter = Counter(letters)
+    valid_words = []
+    
+    # Filter word_list to only include words with length 3 or more
+    # and that can be formed from the available letters
+    for word in word_list:
+        if len(word) >= 3 and all(letter_counter[letter] >= count for letter, count in Counter(word).items()):
+            valid_words.append(word)
+    
+    return valid_words
 
-    # Base case: all letters used
-    if not any(letter_count.values()):
+def can_interconnect(words, remaining_letters):
+    """Check if words can be interconnected to use all letters."""
+    if not remaining_letters:
         return True
-
-    # Try forming words of valid lengths
-    for i in range(3, len(letters) + 1):
-        for perm in permutations(letters, i):
-            word = ''.join(perm)
-            if word in word_list:
-                # Subtract used letters
-                word_count = Counter(word)
-                remaining_count = letter_count - word_count
-
-                # Recursive call with remaining letters
-                if is_solvable(''.join(remaining_count.elements()), word_list):
-                    return True
-
+    
+    if not words:
+        return False
+    
+    # Try each word as a starting point
+    for i, word in enumerate(words):
+        # Count letters used in the current word
+        word_counter = Counter(word)
+        
+        # Calculate remaining letters after using this word
+        new_remaining = Counter(remaining_letters)
+        for letter, count in word_counter.items():
+            new_remaining[letter] -= count
+            if new_remaining[letter] < 0:
+                # This means the word uses more of a letter than available
+                # This shouldn't happen with our valid_words filtering, but just in case
+                break
+        else:
+            # If we got here, the word can be used
+            # Remove letters used by this word
+            updated_remaining = ''.join(new_remaining.elements())
+            
+            # If no letters remain, we've solved it
+            if not updated_remaining:
+                return True
+            
+            # Try to interconnect with other words
+            remaining_words = words[:i] + words[i+1:]
+            
+            # Find all potential shared letters between current word and remaining letters
+            shared_letters = set(word) & set(updated_remaining)
+            
+            # If there are shared letters, we can potentially interconnect
+            if shared_letters and can_interconnect(remaining_words, updated_remaining):
+                return True
+    
     return False
+
+def is_solvable(letters, word_list):
+    """Check if the set of letters is solvable in Q-Less."""
+    # Get all valid words that can be formed from the letters
+    valid_words = get_valid_words(letters, word_list)
+    
+    # No valid words means it's not solvable
+    if not valid_words:
+        return False
+    
+    # Check if words can be interconnected to use all letters
+    return can_interconnect(valid_words, letters)
 
 
 def main():
